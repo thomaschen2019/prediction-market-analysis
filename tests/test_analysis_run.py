@@ -12,6 +12,7 @@ import pytest
 from matplotlib.animation import FuncAnimation
 from matplotlib.figure import Figure
 
+from src.analysis.polymarket.polymarket_trader_performance import PolymarketTraderPerformanceAnalysis
 from src.common.analysis import Analysis, AnalysisOutput
 
 _ALL_ANALYSES = Analysis.load()
@@ -88,3 +89,82 @@ def test_animated_analysis_run(cls: type[Analysis], all_fixture_dirs: dict[str, 
 
     if output.data is not None:
         assert isinstance(output.data, pd.DataFrame)
+
+
+# ── Checkpoint tests for PolymarketTraderPerformanceAnalysis ─────────────────
+
+
+def _make_trader_instance(fixture_dirs: dict[str, Path], checkpoint_dir: Path, fmt: str = "parquet"):
+    return PolymarketTraderPerformanceAnalysis(
+        trades_dir=fixture_dirs["polymarket_trades_dir"],
+        markets_dir=fixture_dirs["polymarket_markets_dir"],
+        blocks_dir=fixture_dirs["polymarket_blocks_dir"],
+        checkpoint_dir=checkpoint_dir,
+        checkpoint_format=fmt,
+    )
+
+
+@pytest.mark.parametrize("fmt", ["parquet", "csv"])
+def test_checkpoint_files_created(fmt: str, all_fixture_dirs: dict[str, Path], tmp_path: Path):
+    """First run writes all three checkpoint files in the requested format."""
+    ckpt = tmp_path / "ckpt"
+    output = _make_trader_instance(all_fixture_dirs, ckpt, fmt).run()
+    plt.close("all")
+
+    assert isinstance(output, AnalysisOutput)
+    assert (ckpt / f"token_resolution.{fmt}").exists()
+    assert (ckpt / f"trade_pnl.{fmt}").exists()
+    assert (ckpt / f"trader_metrics.{fmt}").exists()
+
+
+@pytest.mark.parametrize("fmt", ["parquet", "csv"])
+def test_resume_from_trader_metrics_checkpoint(fmt: str, all_fixture_dirs: dict[str, Path], tmp_path: Path):
+    """Second run loads trader_metrics checkpoint and produces identical results."""
+    ckpt = tmp_path / "ckpt"
+    out1 = _make_trader_instance(all_fixture_dirs, ckpt, fmt).run()
+    plt.close("all")
+
+    # Remove upstream checkpoints to confirm only trader_metrics is needed
+    (ckpt / f"token_resolution.{fmt}").unlink()
+    (ckpt / f"trade_pnl.{fmt}").unlink()
+
+    out2 = _make_trader_instance(all_fixture_dirs, ckpt, fmt).run()
+    plt.close("all")
+
+    assert out1.data is not None and out2.data is not None
+    pd.testing.assert_frame_equal(out1.data.reset_index(drop=True), out2.data.reset_index(drop=True))
+
+
+@pytest.mark.parametrize("fmt", ["parquet", "csv"])
+def test_resume_from_trade_pnl_checkpoint(fmt: str, all_fixture_dirs: dict[str, Path], tmp_path: Path):
+    """Second run skips SQL query when trade_pnl checkpoint exists."""
+    ckpt = tmp_path / "ckpt"
+    out1 = _make_trader_instance(all_fixture_dirs, ckpt, fmt).run()
+    plt.close("all")
+
+    # Remove only the trader_metrics checkpoint to force re-aggregation from trade_pnl
+    (ckpt / f"trader_metrics.{fmt}").unlink()
+
+    out2 = _make_trader_instance(all_fixture_dirs, ckpt, fmt).run()
+    plt.close("all")
+
+    assert out1.data is not None and out2.data is not None
+    pd.testing.assert_frame_equal(out1.data.reset_index(drop=True), out2.data.reset_index(drop=True))
+
+
+def test_no_checkpoint_dir_runs_clean(all_fixture_dirs: dict[str, Path]):
+    """Without checkpoint_dir the analysis runs normally without writing any files."""
+    instance = PolymarketTraderPerformanceAnalysis(
+        trades_dir=all_fixture_dirs["polymarket_trades_dir"],
+        markets_dir=all_fixture_dirs["polymarket_markets_dir"],
+        blocks_dir=all_fixture_dirs["polymarket_blocks_dir"],
+    )
+    output = instance.run()
+    plt.close("all")
+    assert isinstance(output, AnalysisOutput)
+
+
+def test_invalid_checkpoint_format_raises():
+    """Unsupported format string raises ValueError at construction time."""
+    with pytest.raises(ValueError, match="checkpoint_format"):
+        PolymarketTraderPerformanceAnalysis(checkpoint_format="json")

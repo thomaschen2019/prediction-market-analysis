@@ -81,6 +81,12 @@ def _make_polymarket_ctf_trades() -> pd.DataFrame:
     5 price levels x 2 sides (buying token_yes_a and token_yes_b).
     maker_asset_id='0' means buyer pays USDC.
     Price = 100 * maker_amount / taker_amount.
+
+    Trader assignments:
+    - 0xtrader_alpha: maker (buyer) on token_yes_a (WON) → all positive PnL
+    - 0xtrader_beta:  taker (seller) on token_yes_a (WON) → all negative PnL
+    - 0xtrader_gamma: maker (buyer) on token_yes_b (LOST) → all negative PnL
+    - 0xtrader_delta: taker (seller) on token_yes_b (LOST) → all positive PnL
     """
     rows = []
     prices = [20, 40, 50, 60, 80]
@@ -93,6 +99,8 @@ def _make_polymarket_ctf_trades() -> pd.DataFrame:
                 "taker_asset_id": "token_yes_a",
                 "maker_amount": price * 10000,
                 "taker_amount": 1000000,
+                "maker": "0xtrader_alpha",
+                "taker": "0xtrader_beta",
             }
         )
         rows.append(
@@ -102,6 +110,8 @@ def _make_polymarket_ctf_trades() -> pd.DataFrame:
                 "taker_asset_id": "token_yes_b",
                 "maker_amount": price * 10000,
                 "taker_amount": 1000000,
+                "maker": "0xtrader_gamma",
+                "taker": "0xtrader_delta",
             }
         )
 
